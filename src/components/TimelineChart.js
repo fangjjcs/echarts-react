@@ -1,21 +1,23 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import * as echarts from 'echarts';
 
 import './Charts.css';
 
-const TimelineChart = props => {
+
+const TimelineChart = ({data, categories}) => {
 
     let chartRef;
     var data = [];
     var dataCount = 5;
     var startTime = +new Date();
-    var categories = ['categoryA', 'categoryB', 'categoryC'];
+    var categories = ['categoryA', 'categoryB', 'categoryC', 'categoryD'];
     var types = [
         { name: 'JS Heap', color: '#7b9ce1' },
         { name: 'Documents', color: '#bd6d6c' },
         { name: 'Nodes', color: '#75d874' },
     ];
+    const [selectedData, setSeletedData] = useState([])
 
     // Generate mock data
     categories.forEach(function (category, index) {
@@ -29,6 +31,9 @@ const TimelineChart = props => {
             value: [index, baseTime, (baseTime += duration), duration],
             itemStyle: {
                 color: typeItem.color
+            },
+            emphasis:{
+                opacity: 1
             }
         });
         baseTime += Math.round(Math.random() * 2000);
@@ -66,13 +71,7 @@ const TimelineChart = props => {
         );
     }
 
-    const emphasisStyle = {
-        itemStyle: {
-          color: '#eee',
-          opacity: 1
-        }
-    };
-    const options = {
+    const defaultOptions = {
         tooltip: {
             formatter: function (params) {
                 return params.marker + params.name + ': ' + params.value[3] + ' ms';
@@ -86,7 +85,7 @@ const TimelineChart = props => {
             toolbox: ['rect'],
             xAxisIndex: 0,
             throttleType: 'debounce',
-            throttleDelay: 200,
+            throttleDelay: 300,
         },
         dataZoom: [
             {
@@ -127,38 +126,51 @@ const TimelineChart = props => {
                     x: [1, 2],
                     y: 0
                 },
-                emphasis: emphasisStyle,
-                data: data
+                data: data,
             }
         ]
-    };
+    }
 
-    function renderBrushed(params) { 
+    const options= defaultOptions;
+
+
+    async function renderBrushed(params, echarts) { 
         const target = params.batch[0];
-        const data = chartRef.getEchartsInstance()._chartsViews[0].group._children
         if (target.areas.length != 0) {
-            let selectRect = target.areas[0].range[0]; // [left,right]
+            let selectRect = target.areas[0].coordRanges[0][0]; // [left,right]
             let selectedCategory = target.areas[0].coordRanges[0][1] // [0,0] or [0,1] ...
             //--- selected array ---//
-            let indexArr = data.map((d, i) => d.shape.x >= selectRect[0] && 
-                d.shape.x <= selectRect[1] && 
-                d.name>=selectedCategory[0] && d.name<=selectedCategory[1]? i : -1).filter(i => i >= 0);
-            console.log(indexArr)
+            // let indexArr = data.map((d, i) => d.shape.x >= selectRect[0] && 
+            //     d.shape.x <= selectRect[1] && 
+            //     d.name>=selectedCategory[0] && d.name<=selectedCategory[1]? i : -1).filter(i => i >= 0);
+            // console.log(indexArr)
 
             //--- selected data array ---//
-            const selectedData = indexArr.map(i => ([...options.series.map(s => s.data[i])])).flat()
-            console.log(selectedData)
+            let indexArr = [];
+            const selectedData = options.series[0].data.filter( (o, i) => {
+                if(o.value[1] >= selectRect[0] && o.value[1] <= selectRect[1] && o.value[0]>=selectedCategory[0] && o.value[0]<=selectedCategory[1]){
+                    indexArr.push(i);
+                    return true
+                }
+            })
+            console.log(selectRect, selectedData)
+            
             //--- change options for color (all data) ---//
-            options.series[0].data.forEach((data, index) => {
+            let newOptions = options
+            newOptions.series[0].data.forEach((data, index) => {
                 if(!indexArr.includes(index)){
-                    data.itemStyle.color = '#eee';
+                    data.itemStyle.color = '#ddd';
                 } else {
                     data.itemStyle.color = types.filter(t=>t.name===data.name)[0].color
                 }
             })
-            console.log(options)
-            chartRef.getEchartsInstance().setOption(options)
-            
+            echarts.setOption(newOptions)
+            echarts.dispatchAction({
+                type: 'select',
+                seriesIndex: 0,
+                dataIndex: indexArr
+            })
+            // setSeletedData(selectedData)
             //--- selected data ---//
             // let selectedData = data.filter((d) => d.shape.x >= selectRect[0] && d.shape.x <= selectRect[1]&& 
             //     d.name>=selectedCategory[0] && d.name<=selectedCategory[1])
@@ -173,23 +185,45 @@ const TimelineChart = props => {
   
         };
     }
-    
+
     function releaseClick (params) {
-        options.series[0].data.forEach((data, index) => {
+        let newOptions = options
+        newOptions.series[0].data.forEach((data, index) => {
             data.itemStyle.color = types.filter(t=>t.name===data.name)[0].color
         })
         chartRef.getEchartsInstance().setOption(options)
-        const data = options.series[0].data
-        console.log(data)
     };
 
     useEffect(()=>{
-        chartRef.getEchartsInstance().on('brushSelected', renderBrushed)
+        // chartRef.getEchartsInstance().on('brushSelected', renderBrushed)
         chartRef.getEchartsInstance().getZr().on('click', releaseClick)
-        
     },[])
 
-    return <ReactECharts ref={(e)=>{chartRef=e}} option={options} style={{width: '80%', height: '500px'}}/>;
+    function onChartReady(echarts) {
+        console.log('echarts is ready', echarts);
+    }
+
+    const onChartClick = (echarts) => {
+        console.log(echarts)
+    }
+
+    useEffect(()=>{
+        console.log("data changed",selectedData)
+    },[selectedData])
+
+    return <><ReactECharts 
+    ref={(e)=>{chartRef=e}} 
+    option={options} 
+    onChartReady={onChartReady}
+    onEvents={{
+        'brushSelected': renderBrushed,
+        // 'click': releaseClick
+        'click': onChartClick
+    }}
+    style={{width: '80%', height: '500px'}}
+    notMerge={true}
+    />{}</>
+    
 }
 
 
